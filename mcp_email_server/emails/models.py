@@ -3,7 +3,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-
 class EmailData(BaseModel):
     subject: str
     sender: str
@@ -21,6 +20,16 @@ class EmailData(BaseModel):
             attachments=email["attachments"],
         )
 
+    def to_preview(self):
+        max_length = 200
+        truncated_body = self.body[:max_length] + "..." if len(self.body) > max_length else self.body
+        return EmailData(
+            subject=self.subject,
+            sender=self.subject,
+            body=truncated_body,
+            date=self.date,
+            attachments=self.attachments,
+        )
 
 class EmailPageResponse(BaseModel):
     page: int

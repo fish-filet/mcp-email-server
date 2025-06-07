@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
@@ -15,25 +15,21 @@ from mcp_email_server.emails.models import EmailPageResponse
 
 mcp = FastMCP("email")
 
-
 @mcp.resource("email://{account_name}")
 async def get_account(account_name: str) -> EmailSettings | ProviderSettings | None:
     settings = get_settings()
     return settings.get_account(account_name, masked=True)
-
 
 @mcp.tool()
 async def list_available_accounts() -> list[AccountAttributes]:
     settings = get_settings()
     return [account.masked() for account in settings.get_accounts()]
 
-
 @mcp.tool()
 async def add_email_account(email: EmailSettings) -> None:
     settings = get_settings()
     settings.add_email(email)
     settings.store()
-
 
 @mcp.tool(description="Paginate emails, page start at 1, before and since as UTC datetime.")
 async def page_email(
@@ -66,7 +62,7 @@ async def page_email(
 ) -> EmailPageResponse:
     handler = dispatch_handler(account_name)
 
-    return await handler.get_emails(
+    response = await handler.get_emails(
         page=page,
         page_size=page_size,
         before=before,
@@ -79,6 +75,9 @@ async def page_email(
         order=order,
     )
 
+    # Convert emails to preview format
+    response.emails = [email.to_preview() for email in response.emails]
+    return response
 
 @mcp.tool(
     description="Send an email using the specified account. Recipient should be a list of email addresses.",
@@ -100,3 +99,36 @@ async def send_email(
     handler = dispatch_handler(account_name)
     await handler.send_email(recipients, subject, body, cc, bcc)
     return
+
+@mcp.tool(description="List all folders in the specified email account.")
+async def list_folders(account_name: Annotated[str, Field(description="The name of the email account.")]) -> list[str]:
+    handler = dispatch_handler(account_name)
+    return await handler.list_folders()
+
+@mcp.tool(description="Move an email from one folder to another.")
+async def move_email(
+    account_name: Annotated[str, Field(description="The name of the email account.")],
+    message_id: Annotated[str, Field(description="The ID of the email to move.")],
+    source_folder: Annotated[str, Field(description="The source folder of the email.")],
+    destination_folder: Annotated[str, Field(description="The destination folder of the email.")],
+) -> bool:
+    handler = dispatch_handler(account_name)
+    return await handler.move_email(message_id, source_folder, destination_folder)
+
+@mcp.tool(description="Delete an email from the specified folder.")
+async def delete_email(
+    account_name: Annotated[str, Field(description="The name of the email account.")],
+    message_id: Annotated[str, Field(description="The ID of the email to delete.")],
+    folder: Annotated[str, Field(default="INBOX", description="The folder containing the email.")] = "INBOX",
+) -> bool:
+    handler = dispatch_handler(account_name)
+    return await handler.delete_email(message_id, folder)
+
+@mcp.tool(description="Get the full body of an email.")
+async def get_full_email_body(
+    account_name: Annotated[str, Field(description="The name of the email account.")],
+    message_id: Annotated[str, Field(description="The ID of the email to retrieve the full body for.")],
+    folder: Annotated[str, Field(default="INBOX", description="The folder containing the email.")] = "INBOX",
+) -> str:
+    handler = dispatch_handler(account_name)
+    return await handler.get_full_email_body(message_id, folder)

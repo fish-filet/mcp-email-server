@@ -14,7 +14,6 @@ from mcp_email_server.emails import EmailHandler
 from mcp_email_server.emails.models import EmailData, EmailPageResponse
 from mcp_email_server.log import logger
 
-
 class EmailClient:
     def __init__(self, email_server: EmailServer, sender: str | None = None):
         self.email_server = email_server
@@ -262,6 +261,83 @@ class EmailClient:
 
             await smtp.send_message(msg, recipients=all_recipients)
 
+    async def list_folders(self) -> list[str]:
+        """List all folders in the mail account."""
+        imap = self.imap_class(self.email_server.host, self.email_server.port)
+        try:
+            # Wait for the connection to be established
+            await imap._client_task
+            await imap.wait_hello_from_server()
+
+            # Login
+            await imap.login(self.email_server.user_name, self.email_server.password)
+
+            # List all folders
+            _, folders = await imap.list()
+            return [folder.decode("utf-8") for folder in folders]
+        finally:
+            # Ensure we logout properly
+            try:
+                await imap.logout()
+            except Exception as e:
+                logger.info(f"Error during logout: {e}")
+
+    async def move_email(self, message_id: str, source_folder: str, destination_folder: str) -> bool:
+        """Move an email from one folder to another."""
+        imap = self.imap_class(self.email_server.host, self.email_server.port)
+        try:
+            # Wait for the connection to be established
+            await imap._client_task
+            await imap.wait_hello_from_server()
+
+            # Login and select source folder
+            await imap.login(self.email_server.user_name, self.email_server.password)
+            await imap.select(source_folder)
+
+            # Copy the email to the destination folder
+            await imap.copy(message_id, destination_folder)
+
+            # Delete the email from the source folder
+            await imap.store(message_id, "+FLAGS", "\\Deleted")
+            await imap.expunge()
+
+            return True
+        except Exception as e:
+            logger.error(f"Error moving email: {e!s}")
+            return False
+        finally:
+            # Ensure we logout properly
+            try:
+                await imap.logout()
+            except Exception as e:
+                logger.info(f"Error during logout: {e}")
+
+    async def delete_email(self, message_id: str, folder: str = "INBOX") -> bool:
+        """Move an email to the trash (delete an email)."""
+        imap = self.imap_class(self.email_server.host, self.email_server.port)
+        try:
+            # Wait for the connection to be established
+            await imap._client_task
+            await imap.wait_hello_from_server()
+
+            # Login and select folder
+            await imap.login(self.email_server.user_name, self.email_server.password)
+            await imap.select(folder)
+
+            # Mark the email as deleted
+            await imap.store(message_id, "+FLAGS", "\\Deleted")
+            await imap.expunge()
+
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting email: {e!s}")
+            return False
+        finally:
+            # Ensure we logout properly
+            try:
+                await imap.logout()
+            except Exception as e:
+                logger.info(f"Error during logout: {e}")
 
 class ClassicEmailHandler(EmailHandler):
     def __init__(self, email_settings: EmailSettings):
@@ -307,3 +383,64 @@ class ClassicEmailHandler(EmailHandler):
         self, recipients: list[str], subject: str, body: str, cc: list[str] | None = None, bcc: list[str] | None = None
     ) -> None:
         await self.outgoing_client.send_email(recipients, subject, body, cc, bcc)
+
+    async def list_folders(self) -> list[str]:
+        """List all folders in the mail account."""
+        return await self.incoming_client.list_folders()
+
+    async def move_email(self, message_id: str, source_folder: str, destination_folder: str) -> bool:
+        """Move an email from one folder to another."""
+        return await self.incoming_client.move_email(message_id, source_folder, destination_folder)
+
+    async def delete_email(self, message_id: str, folder: str = "INBOX") -> bool:
+        """Move an email to the trash (delete an email)."""
+        return await self.incoming_client.delete_email(message_id, folder)
+
+
+    async def get_full_email_body(self, message_id: str, folder: str = "INBOX") -> str:
+        """Fetch the full body of an email."""
+        imap = self.incoming_client.imap_class(self.incoming_client.email_server.host, self.incoming_client.email_server.port)
+        try:
+            # Wait for the connection to be established
+            await imap._client_task
+            await imap.wait_hello_from_server()
+
+            # Login and select folder
+            await imap.login(self.incoming_client.email_server.user_name, self.incoming_client.email_server.password)
+            await imap.select(folder)
+
+            # Fetch the email
+            _, data = await imap.fetch(message_id, "RFC822")
+
+            # Find the email data in the response
+            raw_email = None
+
+            # The actual email content is in the bytearray at index 1
+            if len(data) > 1 and isinstance(data[1], bytearray) and len(data[1]) > 0:
+                raw_email = bytes(data[1])
+            else:
+                # Fallback to searching through all items
+                for _, item in enumerate(data):
+                    if isinstance(item, bytes | bytearray) and len(item) > 100:
+                        # Skip header lines that contain FETCH
+                        if isinstance(item, bytes) and b"FETCH" in item:
+                            continue
+                        # This is likely the email content
+                        raw_email = bytes(item) if isinstance(item, bytearray) else item
+                        break
+
+            if raw_email:
+                parsed_email = self.incoming_client._parse_email_data(raw_email)
+                return parsed_email.get("body", "")
+            else:
+                logger.error(f"Could not find email data in response for message ID: {message_id}")
+                return ""
+        except Exception as e:
+            logger.error(f"Error fetching full email body: {e!s}")
+            return ""
+        finally:
+            # Ensure we logout properly
+            try:
+                await imap.logout()
+            except Exception as e:
+                logger.info(f"Error during logout: {e}")
