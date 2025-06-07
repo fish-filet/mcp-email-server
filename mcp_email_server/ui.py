@@ -1,6 +1,6 @@
 import gradio as gr
 
-from mcp_email_server.config import EmailSettings, get_settings, store_settings
+from mcp_email_server.config import EmailSettings, get_settings, store_settings, DEFAULT_CONFIG_PATH
 from mcp_email_server.tools.installer import install_claude_desktop, is_installed, need_update, uninstall_claude_desktop
 
 
@@ -8,6 +8,11 @@ def create_ui():  # noqa: C901
     # Create a Gradio interface
     with gr.Blocks(title="Email Settings Configuration") as app:
         gr.Markdown("# Email Settings Configuration")
+        gr.Markdown(
+            "> **Achtung:** Die Zugangsdaten werden im Klartext in "
+            f"`{DEFAULT_CONFIG_PATH}` gespeichert. "
+            "Nutze das Programm nur auf vertrauenswürdigen Rechnern."
+        )
 
         # Function to get current accounts
         def get_current_accounts():
@@ -473,7 +478,7 @@ def create_ui():  # noqa: C901
 
 def main():
     app = create_ui()
-    app.launch(inbrowser=True)
+    app.launch(server_name="127.0.0.1", server_port=8765, inbrowser=True)
 
 
 if __name__ == "__main__":

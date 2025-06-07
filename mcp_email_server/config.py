@@ -15,9 +15,9 @@ from pydantic_settings import (
 
 from mcp_email_server.log import logger
 
-DEFAILT_CONFIG_PATH = "~/.config/zerolib/mcp_email_server/config.toml"
+DEFAULT_CONFIG_PATH = "./mcp_email_server/config.toml"
 
-CONFIG_PATH = Path(os.getenv("MCP_EMAIL_SERVER_CONFIG_PATH", DEFAILT_CONFIG_PATH)).expanduser().resolve()
+CONFIG_PATH = Path(os.getenv("MCP_EMAIL_SERVER_CONFIG_PATH", DEFAULT_CONFIG_PATH)).expanduser().resolve()
 
 
 class EmailServer(BaseModel):

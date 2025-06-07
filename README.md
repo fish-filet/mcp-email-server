@@ -85,3 +85,36 @@ Use `uv run mcp-email-server` for local development.
 - Create a new tag in the form `*.*.*`.
 
 For more details, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/cicd/#how-to-trigger-a-release).
+
+## Build Binary
+
+```bash
+pyi-makespec --onefile --name mcp_email_server main.py --collect-data gradio --collect-data gradio_client --collect-data safehttpx --hidden-import anyio --hidden-import starlette.routing
+```
+
+Adapt mcp_email_server.spec file:
+
+```
+a = Analysis(
+    ['main.py'],
+    pathex=[],
+    binaries=[],
+    datas=datas,
+    hiddenimports=['anyio', 'starlette.routing'],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+    module_collection_mode={"gradio": "py"},  # this must be added
+)
+```
+
+```bash
+pyinstaller --onefile --name mcp_email_server main.py --collect-data gradio --collect-data gradio_client --collect-data safehttpx --hidden-import anyio --hidden-import starlette.routing
+```
+
+```bash
+python -m nuitka --standalone --onefile main.py
+```
