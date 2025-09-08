@@ -1,6 +1,7 @@
 import email.utils
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from email.header import Header
 from email.mime.text import MIMEText
 from email.parser import BytesParser
 from email.policy import default
@@ -110,12 +111,18 @@ class EmailClient:
             await imap.select("INBOX")
 
             search_criteria = self._build_search_criteria(before, since, subject, body, text, from_address, to_address)
-            # Search for messages
-            _, messages = await imap.search(*search_criteria)
             logger.info(f"Get: Search criteria: {search_criteria}")
-            logger.debug(f"Raw messages: {messages}")
-            message_ids = messages[0].split()
-            logger.debug(f"Message IDs: {message_ids}")
+
+            # Search for messages - use UID SEARCH for better compatibility
+            _, messages = await imap.uid_search(*search_criteria)
+
+            # Handle empty or None responses
+            if not messages or not messages[0]:
+                logger.warning("No messages returned from search")
+                message_ids = []
+            else:
+                message_ids = messages[0].split()
+                logger.info(f"Found {len(message_ids)} message IDs")
             start = (page - 1) * page_size
             end = start + page_size
 
@@ -128,20 +135,55 @@ class EmailClient:
                     # Convert message_id from bytes to string
                     message_id_str = message_id.decode("utf-8")
 
-                    # Use the string version of the message ID
-                    _, data = await imap.fetch(message_id_str, "RFC822")
+                    # Fetch the email using UID - try different formats for compatibility
+                    data = None
+                    fetch_formats = ["RFC822", "BODY[]", "BODY.PEEK[]", "(BODY.PEEK[])"]
+
+                    for fetch_format in fetch_formats:
+                        try:
+                            _, data = await imap.uid("fetch", message_id_str, fetch_format)
+
+                            if data and len(data) > 0:
+                                # Check if we got actual email content or just metadata
+                                has_content = False
+                                for item in data:
+                                    if (
+                                        isinstance(item, bytes)
+                                        and b"FETCH (" in item
+                                        and b"RFC822" not in item
+                                        and b"BODY" not in item
+                                    ):
+                                        # This is just metadata (like 'FETCH (UID 71998)'), not actual content
+                                        continue
+                                    elif isinstance(item, bytes | bytearray) and len(item) > 100:
+                                        # This looks like email content
+                                        has_content = True
+                                        break
+
+                                if has_content:
+                                    break
+                                else:
+                                    data = None  # Try next format
+
+                        except Exception as e:
+                            logger.debug(f"Fetch format {fetch_format} failed: {e}")
+                            data = None
+
+                    if not data:
+                        logger.error(f"Failed to fetch UID {message_id_str} with any format")
+                        continue
 
                     # Find the email data in the response
                     raw_email = None
 
-                    # The actual email content is in the bytearray at index 1
-                    if len(data) > 1 and isinstance(data[1], bytearray) and len(data[1]) > 0:
+                    # The email content is typically at index 1 as a bytearray
+                    if len(data) > 1 and isinstance(data[1], bytearray):
                         raw_email = bytes(data[1])
                     else:
-                        # Fallback to searching through all items
-                        for _, item in enumerate(data):
+                        # Search through all items for email content
+                        for item in data:
                             if isinstance(item, bytes | bytearray) and len(item) > 100:
-                                # Skip header lines that contain FETCH
+                                # Skip IMAP protocol responses
                                 if isinstance(item, bytes) and b"FETCH" in item:
                                     continue
                                 # This is likely the email content
@@ -219,8 +261,8 @@ class EmailClient:
             await imap.select("INBOX")
             search_criteria = self._build_search_criteria(before, since, subject, body, text, from_address, to_address)
             logger.info(f"Count: Search criteria: {search_criteria}")
-            # Search for messages and count them
-            _, messages = await imap.search(*search_criteria)
+            # Search for messages and count them - use UID SEARCH for consistency
+            _, messages = await imap.uid_search(*search_criteria)
             return len(messages[0].split())
         finally:
             # Ensure we logout properly
@@ -232,9 +274,21 @@ class EmailClient:
     async def send_email(
         self, recipients: list[str], subject: str, body: str, cc: list[str] | None = None, bcc: list[str] | None = None
     ):
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = self.sender
+        # Create message with UTF-8 encoding to support special characters
+        msg = MIMEText(body, "plain", "utf-8")
+
+        # Handle subject with special characters
+        if any(ord(c) > 127 for c in subject):
+            msg["Subject"] = Header(subject, "utf-8")
+        else:
+            msg["Subject"] = subject
+
+        # Handle sender name with special characters
+        if any(ord(c) > 127 for c in self.sender):
+            msg["From"] = Header(self.sender, "utf-8")
+        else:
+            msg["From"] = self.sender
+
         msg["To"] = ", ".join(recipients)
 
         # Add CC header if provided (visible to recipients)

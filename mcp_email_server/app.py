@@ -20,16 +20,19 @@ async def get_account(account_name: str) -> EmailSettings | ProviderSettings | N
     settings = get_settings()
     return settings.get_account(account_name, masked=True)
 
-@mcp.tool()
+
+@mcp.tool(description="List all configured email accounts with masked credentials.")
 async def list_available_accounts() -> list[AccountAttributes]:
     settings = get_settings()
     return [account.masked() for account in settings.get_accounts()]
 
-@mcp.tool()
-async def add_email_account(email: EmailSettings) -> None:
+
+@mcp.tool(description="Add a new email account configuration to the settings.")
+async def add_email_account(email: EmailSettings) -> str:
     settings = get_settings()
     settings.add_email(email)
     settings.store()
+    return f"Successfully added email account '{email.account_name}'"
 
 @mcp.tool(description="Paginate emails, page start at 1, before and since as UTC datetime.")
 async def page_email(
@@ -95,7 +98,7 @@ async def send_email(
         list[str] | None,
         Field(default=None, description="A list of BCC email addresses."),
     ] = None,
-) -> None:
+) -> str:
     handler = dispatch_handler(account_name)
     await handler.send_email(recipients, subject, body, cc, bcc)
     return

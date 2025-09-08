@@ -35,6 +35,54 @@ This package is available on PyPI, so you can install it using `pip install mcp-
 
 After that, configure your email server using the ui: `mcp-email-server ui`
 
+### Environment Variable Configuration
+
+You can also configure the email server using environment variables, which is particularly useful for CI/CD environments like Jenkins. zerolib-email supports both UI configuration (via TOML file) and environment variables, with environment variables taking precedence.
+
+```json
+{
+  "mcpServers": {
+    "zerolib-email": {
+      "command": "uvx",
+      "args": ["mcp-email-server@latest", "stdio"],
+      "env": {
+        "MCP_EMAIL_SERVER_ACCOUNT_NAME": "work",
+        "MCP_EMAIL_SERVER_FULL_NAME": "John Doe",
+        "MCP_EMAIL_SERVER_EMAIL_ADDRESS": "john@example.com",
+        "MCP_EMAIL_SERVER_USER_NAME": "john@example.com",
+        "MCP_EMAIL_SERVER_PASSWORD": "your_password",
+        "MCP_EMAIL_SERVER_IMAP_HOST": "imap.gmail.com",
+        "MCP_EMAIL_SERVER_IMAP_PORT": "993",
+        "MCP_EMAIL_SERVER_SMTP_HOST": "smtp.gmail.com",
+        "MCP_EMAIL_SERVER_SMTP_PORT": "465"
+      }
+    }
+  }
+}
+```
+
+#### Available Environment Variables
+
+| Variable                          | Description        | Default       | Required |
+| --------------------------------- | ------------------ | ------------- | -------- |
+| `MCP_EMAIL_SERVER_ACCOUNT_NAME`   | Account identifier | `"default"`   | No       |
+| `MCP_EMAIL_SERVER_FULL_NAME`      | Display name       | Email prefix  | No       |
+| `MCP_EMAIL_SERVER_EMAIL_ADDRESS`  | Email address      | -             | Yes      |
+| `MCP_EMAIL_SERVER_USER_NAME`      | Login username     | Same as email | No       |
+| `MCP_EMAIL_SERVER_PASSWORD`       | Email password     | -             | Yes      |
+| `MCP_EMAIL_SERVER_IMAP_HOST`      | IMAP server host   | -             | Yes      |
+| `MCP_EMAIL_SERVER_IMAP_PORT`      | IMAP server port   | `993`         | No       |
+| `MCP_EMAIL_SERVER_IMAP_SSL`       | Enable IMAP SSL    | `true`        | No       |
+| `MCP_EMAIL_SERVER_SMTP_HOST`      | SMTP server host   | -             | Yes      |
+| `MCP_EMAIL_SERVER_SMTP_PORT`      | SMTP server port   | `465`         | No       |
+| `MCP_EMAIL_SERVER_SMTP_SSL`       | Enable SMTP SSL    | `true`        | No       |
+| `MCP_EMAIL_SERVER_SMTP_START_SSL` | Enable STARTTLS    | `false`       | No       |
+
+For separate IMAP/SMTP credentials, you can also use:
+
+- `MCP_EMAIL_SERVER_IMAP_USER_NAME` / `MCP_EMAIL_SERVER_IMAP_PASSWORD`
+- `MCP_EMAIL_SERVER_SMTP_USER_NAME` / `MCP_EMAIL_SERVER_SMTP_PASSWORD`
+
 Then you can try it in [Claude Desktop](https://claude.ai/download). If you want to intergrate it with other mcp client, run `$which mcp-email-server` for the path and configure it in your client like:
 
 ```json

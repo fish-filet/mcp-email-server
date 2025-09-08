@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import os
 from pathlib import Path
+from typing import Any
 
 import tomli_w
 from pydantic import BaseModel, Field, model_validator
@@ -111,6 +112,72 @@ class EmailSettings(AccountAttributes):
             ),
         )
 
+    @classmethod
+    def from_env(cls) -> EmailSettings | None:
+        """Create EmailSettings from environment variables.
+
+        Expected environment variables:
+        - MCP_EMAIL_SERVER_ACCOUNT_NAME (default: "default")
+        - MCP_EMAIL_SERVER_FULL_NAME
+        - MCP_EMAIL_SERVER_EMAIL_ADDRESS
+        - MCP_EMAIL_SERVER_USER_NAME
+        - MCP_EMAIL_SERVER_PASSWORD
+        - MCP_EMAIL_SERVER_IMAP_HOST
+        - MCP_EMAIL_SERVER_IMAP_PORT (default: 993)
+        - MCP_EMAIL_SERVER_IMAP_SSL (default: true)
+        - MCP_EMAIL_SERVER_SMTP_HOST
+        - MCP_EMAIL_SERVER_SMTP_PORT (default: 465)
+        - MCP_EMAIL_SERVER_SMTP_SSL (default: true)
+        - MCP_EMAIL_SERVER_SMTP_START_SSL (default: false)
+        """
+        # Check if minimum required environment variables are set
+        email_address = os.getenv("MCP_EMAIL_SERVER_EMAIL_ADDRESS")
+        password = os.getenv("MCP_EMAIL_SERVER_PASSWORD")
+
+        if not email_address or not password:
+            return None
+
+        # Parse boolean values
+        def parse_bool(value: str | None, default: bool = True) -> bool:
+            if value is None:
+                return default
+            return value.lower() in ("true", "1", "yes", "on")
+
+        # Get all environment variables with defaults
+        account_name = os.getenv("MCP_EMAIL_SERVER_ACCOUNT_NAME", "default")
+        full_name = os.getenv("MCP_EMAIL_SERVER_FULL_NAME", email_address.split("@")[0])
+        user_name = os.getenv("MCP_EMAIL_SERVER_USER_NAME", email_address)
+        imap_host = os.getenv("MCP_EMAIL_SERVER_IMAP_HOST")
+        smtp_host = os.getenv("MCP_EMAIL_SERVER_SMTP_HOST")
+
+        # Required fields check
+        if not imap_host or not smtp_host:
+            logger.warning("Missing required email configuration environment variables (IMAP_HOST or SMTP_HOST)")
+            return None
+
+        try:
+            return cls.init(
+                account_name=account_name,
+                full_name=full_name,
+                email_address=email_address,
+                user_name=user_name,
+                password=password,
+                imap_host=imap_host,
+                imap_port=int(os.getenv("MCP_EMAIL_SERVER_IMAP_PORT", "993")),
+                imap_ssl=parse_bool(os.getenv("MCP_EMAIL_SERVER_IMAP_SSL"), True),
+                smtp_host=smtp_host,
+                smtp_port=int(os.getenv("MCP_EMAIL_SERVER_SMTP_PORT", "465")),
+                smtp_ssl=parse_bool(os.getenv("MCP_EMAIL_SERVER_SMTP_SSL"), True),
+                smtp_start_ssl=parse_bool(os.getenv("MCP_EMAIL_SERVER_SMTP_START_SSL"), False),
+                smtp_user_name=os.getenv("MCP_EMAIL_SERVER_SMTP_USER_NAME", user_name),
+                smtp_password=os.getenv("MCP_EMAIL_SERVER_SMTP_PASSWORD", password),
+                imap_user_name=os.getenv("MCP_EMAIL_SERVER_IMAP_USER_NAME", user_name),
+                imap_password=os.getenv("MCP_EMAIL_SERVER_IMAP_PASSWORD", password),
+            )
+        except (ValueError, TypeError) as e:
+            logger.error(f"Failed to create email settings from environment variables: {e}")
+            return None
+
     def masked(self) -> EmailSettings:
         return self.model_copy(
             update={
@@ -134,6 +201,29 @@ class Settings(BaseSettings):
     db_location: str = CONFIG_PATH.with_name("db.sqlite3").as_posix()
 
     model_config = SettingsConfigDict(toml_file=CONFIG_PATH, validate_assignment=True, revalidate_instances="always")
+
+    def __init__(self, **data: Any) -> None:
+        """Initialize Settings with support for environment variables."""
+        super().__init__(**data)
+
+        # Check for email configuration from environment variables
+        env_email = EmailSettings.from_env()
+        if env_email:
+            # Check if this account already exists (from TOML)
+            existing_account = None
+            for i, email in enumerate(self.emails):
+                if email.account_name == env_email.account_name:
+                    existing_account = i
+                    break
+
+            if existing_account is not None:
+                # Replace existing account with env configuration
+                self.emails[existing_account] = env_email
+                logger.info(f"Overriding email account '{env_email.account_name}' with environment variables")
+            else:
+                # Add new account from env
+                self.emails.insert(0, env_email)
+                logger.info(f"Added email account '{env_email.account_name}' from environment variables")
 
     def add_email(self, email: EmailSettings) -> None:
         """Use re-assigned for validation to work."""

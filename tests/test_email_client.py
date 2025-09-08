@@ -150,7 +150,18 @@ class TestEmailClient:
         mock_imap.login = AsyncMock()
         mock_imap.select = AsyncMock()
         mock_imap.search = AsyncMock(return_value=(None, [b"1 2 3"]))
+        mock_imap.uid_search = AsyncMock(return_value=(None, [b"1 2 3"]))
         mock_imap.fetch = AsyncMock(return_value=(None, [b"HEADER", bytearray(b"EMAIL CONTENT")]))
+        # Create a simple email with headers for testing
+        test_email = b"""From: sender@example.com\r
+To: recipient@example.com\r
+Subject: Test Subject\r
+Date: Mon, 1 Jan 2024 00:00:00 +0000\r
+\r
+This is the email body."""
+        mock_imap.uid = AsyncMock(
+            return_value=(None, [b"1 FETCH (UID 1 RFC822 {%d}" % len(test_email), bytearray(test_email)])
+        )
         mock_imap.logout = AsyncMock()
 
         # Mock IMAP class
@@ -179,8 +190,8 @@ class TestEmailClient:
                     email_client.email_server.user_name, email_client.email_server.password
                 )
                 mock_imap.select.assert_called_once_with("INBOX")
-                mock_imap.search.assert_called_once_with("ALL")
-                assert mock_imap.fetch.call_count == 3
+                mock_imap.uid_search.assert_called_once_with("ALL")
+                assert mock_imap.uid.call_count == 3
                 mock_imap.logout.assert_called_once()
 
     @pytest.mark.asyncio
@@ -194,6 +205,7 @@ class TestEmailClient:
         mock_imap.login = AsyncMock()
         mock_imap.select = AsyncMock()
         mock_imap.search = AsyncMock(return_value=(None, [b"1 2 3 4 5"]))
+        mock_imap.uid_search = AsyncMock(return_value=(None, [b"1 2 3 4 5"]))
         mock_imap.logout = AsyncMock()
 
         # Mock IMAP class
@@ -207,7 +219,7 @@ class TestEmailClient:
                 email_client.email_server.user_name, email_client.email_server.password
             )
             mock_imap.select.assert_called_once_with("INBOX")
-            mock_imap.search.assert_called_once_with("ALL")
+            mock_imap.uid_search.assert_called_once_with("ALL")
             mock_imap.logout.assert_called_once()
 
     @pytest.mark.asyncio
